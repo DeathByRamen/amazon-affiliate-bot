@@ -28,17 +28,22 @@ class Config:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///deals.db")
     
-    # Bot behavior - optimized for high-converting affiliate marketing
+    # Bot behavior - BALANCED for deal volume + quality
     MAX_TWEETS_PER_HOUR: int = int(os.getenv("MAX_TWEETS_PER_HOUR", "20"))  # Increased for higher throughput
-    MIN_DISCOUNT_PERCENT: float = float(os.getenv("MIN_DISCOUNT_PERCENT", "20"))  # Research-backed 20% threshold
-    MIN_PRICE_DROP: float = float(os.getenv("MIN_PRICE_DROP", "10.00"))  # Meaningful savings amount
-    MIN_PRODUCT_PRICE: float = float(os.getenv("MIN_PRODUCT_PRICE", "20.00"))  # Avoid low-commission items
-    MAX_PRODUCT_PRICE: float = float(os.getenv("MAX_PRODUCT_PRICE", "200.00"))  # Sweet spot for conversions
+    MIN_DISCOUNT_PERCENT: float = float(os.getenv("MIN_DISCOUNT_PERCENT", "15"))  # Relaxed from 20% to 15%
+    MIN_PRICE_DROP: float = float(os.getenv("MIN_PRICE_DROP", "5.00"))  # Relaxed from $10 to $5
+    MIN_PRODUCT_PRICE: float = float(os.getenv("MIN_PRODUCT_PRICE", "15.00"))  # Relaxed from $20 to $15
+    MAX_PRODUCT_PRICE: float = float(os.getenv("MAX_PRODUCT_PRICE", "300.00"))  # Expanded from $200 to $300
     
-    # Quality filters for high conversion
-    MIN_REVIEW_COUNT: int = int(os.getenv("MIN_REVIEW_COUNT", "100"))  # Trust indicator
-    MIN_REVIEW_RATING: float = float(os.getenv("MIN_REVIEW_RATING", "4.0"))  # Quality threshold
-    MAX_SALES_RANK: int = int(os.getenv("MAX_SALES_RANK", "50000"))  # Top 1-5% popularity
+    # Quality filters - RELAXED for more deals
+    MIN_REVIEW_COUNT: int = int(os.getenv("MIN_REVIEW_COUNT", "25"))  # Relaxed from 100 to 25
+    MIN_REVIEW_RATING: float = float(os.getenv("MIN_REVIEW_RATING", "3.5"))  # Relaxed from 4.0 to 3.5
+    MAX_SALES_RANK: int = int(os.getenv("MAX_SALES_RANK", "100000"))  # Relaxed from 50k to 100k
+    
+    # Fallback settings if primary filters return no deals
+    FALLBACK_MAX_SALES_RANK: int = int(os.getenv("FALLBACK_MAX_SALES_RANK", "500000"))
+    FALLBACK_MIN_REVIEW_COUNT: int = int(os.getenv("FALLBACK_MIN_REVIEW_COUNT", "10"))
+    FALLBACK_MIN_DISCOUNT: float = float(os.getenv("FALLBACK_MIN_DISCOUNT", "10.0"))
     
     # High-volume plan settings
     KEEPA_TOKENS_PER_MINUTE: int = int(os.getenv("KEEPA_TOKENS_PER_MINUTE", "1200"))

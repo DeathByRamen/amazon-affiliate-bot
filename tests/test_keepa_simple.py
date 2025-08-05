@@ -13,8 +13,11 @@ load_env_result = load_dotenv()
 if not load_env_result:
     print("⚠️  No .env file found. Create one with your KEEPA_API_KEY")
 
-# Add current directory to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add src directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+src_dir = os.path.join(parent_dir, 'src')
+sys.path.insert(0, src_dir)
 
 try:
     from keepa_client import KeepaClient

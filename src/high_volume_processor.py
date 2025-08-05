@@ -192,7 +192,8 @@ class HighVolumeDealProcessor:
                             max_sales_rank=config.MAX_SALES_RANK,
                             min_review_count=config.MIN_REVIEW_COUNT,
                             min_rating=config.MIN_REVIEW_RATING,
-                            prime_only=True
+                            prime_only=True,
+                            use_fallback=True
                         )
                         
                         for deal in detailed:
