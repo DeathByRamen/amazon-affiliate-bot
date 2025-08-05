@@ -158,7 +158,7 @@ class KeepaClient:
         try:
             self.logger.debug(f"Fetching product details for ASIN: {asin}")
             
-            products = self.api.query(asin, domain=domain, history=False)
+            products = self.api.query(asin, domain=domain, history=True, offers=20, days=1)
             
             if not products or len(products) == 0:
                 self.logger.warning(f"No product found for ASIN: {asin}")
@@ -242,22 +242,108 @@ class KeepaClient:
             return value
     
     def _parse_product(self, product: Dict) -> Optional[Dict[str, Any]]:
-        """Parse product data from Keepa response"""
+        """Parse product data from Keepa response (from api.query)"""
         try:
+            # Safely get title
+            title = product.get('title')
+            if title is None:
+                title = ''
+            else:
+                title = str(title).strip()
+            
+            # Get current price from CSV data or offers
+            current_price = 0
+            
+            # Try to get price from CSV data (price history)
+            csv_data = product.get('csv')
+            if csv_data and len(csv_data) > 0 and len(csv_data[0]) > 0:
+                # CSV[0] is Amazon price, get the last (most recent) price
+                amazon_prices = csv_data[0]
+                if amazon_prices and len(amazon_prices) > 0:
+                    # Find the last non-null price
+                    for i in range(len(amazon_prices) - 1, -1, -1):
+                        if amazon_prices[i] is not None and amazon_prices[i] > 0:
+                            current_price = amazon_prices[i] / 100
+                            break
+            
+            # If no price from CSV, try to get from liveOffersOrder or other fields
+            if current_price == 0:
+                live_offers = product.get('liveOffersOrder')
+                if live_offers and len(live_offers) > 0:
+                    # Get the first offer (usually best price)
+                    first_offer = live_offers[0]
+                    if isinstance(first_offer, dict):
+                        offer_price = first_offer.get('price')
+                        if offer_price and offer_price > 0:
+                            current_price = offer_price / 100
+            
+            # Get sales rank from salesRanks
+            sales_rank = 999999
+            sales_ranks = product.get('salesRanks', {})
+            if sales_ranks:
+                # Get the best (lowest) sales rank across all categories
+                ranks = []
+                for category_id, rank_data in sales_ranks.items():
+                    if isinstance(rank_data, list) and len(rank_data) > 1:
+                        rank = rank_data[1]  # Second element is the rank
+                        if isinstance(rank, int) and rank > 0:
+                            ranks.append(rank)
+                if ranks:
+                    sales_rank = min(ranks)  # Best rank
+            
+            # Safely get category
+            category = ''
+            category_tree = product.get('categoryTree', [])
+            if category_tree and len(category_tree) > 0:
+                last_cat = category_tree[-1]
+                if isinstance(last_cat, dict):
+                    category = last_cat.get('name', '')
+            
+            # Safely get image URL
+            images_csv = product.get('imagesCSV', '')
+            image_url = ''
+            if images_csv:
+                image_parts = str(images_csv).split(',')
+                if len(image_parts) > 0:
+                    image_url = image_parts[0].strip()
+            
+            # Get review data from the data field
+            rating = 0
+            review_count = 0
+            
+            data_field = product.get('data', {})
+            if isinstance(data_field, dict):
+                # Get rating from RATING array
+                rating_array = data_field.get('RATING')
+                if rating_array is not None and hasattr(rating_array, '__len__') and len(rating_array) > 0:
+                    try:
+                        rating = float(rating_array[-1])  # Get the most recent rating
+                    except (ValueError, TypeError, IndexError):
+                        rating = 0
+                
+                # Get review count from COUNT_REVIEWS array  
+                reviews_array = data_field.get('COUNT_REVIEWS')
+                if reviews_array is not None and hasattr(reviews_array, '__len__') and len(reviews_array) > 0:
+                    try:
+                        review_count = int(reviews_array[-1])  # Get the most recent count
+                    except (ValueError, TypeError, IndexError):
+                        review_count = 0
+            
             return {
-                'asin': product.get('asin'),
-                'title': product.get('title', '').strip(),
-                'current_price': product.get('stats', {}).get('current', [None, 0])[1] / 100,
-                'category': product.get('categoryTree', [{}])[-1].get('name', ''),
+                'asin': product.get('asin', ''),
+                'title': title,
+                'current_price': current_price,
+                'category': category,
                 'brand': product.get('brand', ''),
-                'image_url': product.get('imagesCSV', '').split(',')[0] if product.get('imagesCSV') else '',
-                'sales_rank': product.get('stats', {}).get('salesRankCurrent'),
-                'rating': product.get('stats', {}).get('rating'),
-                'review_count': product.get('stats', {}).get('reviewCount'),
+                'image_url': image_url,
+                'sales_rank': sales_rank,
+                'rating': rating,
+                'review_count': review_count,
                 'timestamp': datetime.utcnow()
             }
         except Exception as e:
             self.logger.error(f"Error parsing product: {str(e)}")
+            self.logger.debug(f"Product data: {product}")
             return None
     
     def _is_valid_deal(self, deal: Dict[str, Any]) -> bool:
