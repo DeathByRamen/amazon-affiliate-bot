@@ -1,0 +1,212 @@
+"""
+Twitter API client for posting affiliate deals
+"""
+import re
+from typing import Optional, Dict, Any
+from datetime import datetime, timedelta
+import tweepy
+from loguru import logger
+from config import config
+
+
+class TwitterClient:
+    """Client for posting deals to Twitter"""
+    
+    def __init__(self):
+        """Initialize Twitter client"""
+        self._validate_config()
+        self.api = self._setup_api()
+        self.logger = logger.bind(component="twitter_client")
+        
+        # Rate limiting tracking
+        self.tweets_posted_today = 0
+        self.last_tweet_time = None
+        self.min_tweet_interval = 300  # 5 minutes between tweets
+        
+    def _validate_config(self):
+        """Validate Twitter API configuration"""
+        required_vars = [
+            config.TWITTER_API_KEY,
+            config.TWITTER_API_SECRET, 
+            config.TWITTER_ACCESS_TOKEN,
+            config.TWITTER_ACCESS_TOKEN_SECRET
+        ]
+        
+        if not all(required_vars):
+            raise ValueError("Missing required Twitter API credentials")
+    
+    def _setup_api(self) -> tweepy.API:
+        """Setup Twitter API client"""
+        try:
+            # OAuth 1.0a User Context
+            auth = tweepy.OAuth1UserHandler(
+                config.TWITTER_API_KEY,
+                config.TWITTER_API_SECRET,
+                config.TWITTER_ACCESS_TOKEN,
+                config.TWITTER_ACCESS_TOKEN_SECRET
+            )
+            
+            api = tweepy.API(auth, wait_on_rate_limit=True)
+            
+            # Test authentication
+            api.verify_credentials()
+            self.logger.info("Twitter API authentication successful")
+            
+            return api
+            
+        except Exception as e:
+            self.logger.error(f"Failed to setup Twitter API: {str(e)}")
+            raise
+    
+    def can_post_tweet(self) -> bool:
+        """Check if we can post a tweet based on rate limits"""
+        # Check hourly limit
+        if self.tweets_posted_today >= config.MAX_TWEETS_PER_HOUR:
+            return False
+        
+        # Check minimum interval between tweets
+        if self.last_tweet_time:
+            time_since_last = (datetime.utcnow() - self.last_tweet_time).total_seconds()
+            if time_since_last < self.min_tweet_interval:
+                return False
+        
+        return True
+    
+    def post_deal(self, deal_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Post a deal to Twitter
+        
+        Args:
+            deal_data: Dictionary containing deal information
+            
+        Returns:
+            Tweet ID if successful, None otherwise
+        """
+        if not self.can_post_tweet():
+            self.logger.warning("Rate limit reached, cannot post tweet")
+            return None
+        
+        try:
+            tweet_content = self._create_tweet_content(deal_data)
+            
+            # Post tweet
+            tweet = self.api.update_status(tweet_content)
+            
+            # Update tracking
+            self.tweets_posted_today += 1
+            self.last_tweet_time = datetime.utcnow()
+            
+            self.logger.info(f"Tweet posted successfully: {tweet.id}")
+            return str(tweet.id)
+            
+        except tweepy.TweepyException as e:
+            self.logger.error(f"Failed to post tweet: {str(e)}")
+            return None
+    
+    def _create_tweet_content(self, deal_data: Dict[str, Any]) -> str:
+        """Create tweet content from deal data"""
+        # Extract deal information
+        title = self._clean_title(deal_data['title'])
+        discount = int(deal_data['discount_percent'])
+        original_price = deal_data['original_price']
+        current_price = deal_data['current_price']
+        savings = original_price - current_price
+        affiliate_url = self._create_affiliate_url(deal_data['asin'])
+        
+        # Create engaging tweet content
+        emoji_fire = "🔥"
+        emoji_money = "💰"
+        emoji_lightning = "⚡"
+        
+        # Format prices
+        original_str = f"${original_price:.2f}"
+        current_str = f"${current_price:.2f}"
+        savings_str = f"${savings:.2f}"
+        
+        # Create tweet with multiple variations for variety
+        variations = [
+            f"{emoji_fire} {discount}% OFF DEAL!\n\n{title}\n\nWas: {original_str}\nNow: {current_str}\nSave: {savings_str}\n\n{affiliate_url}\n\n#AmazonDeals #Sale #Discount",
+            
+            f"{emoji_lightning} FLASH DEAL {emoji_lightning}\n\n{title}\n\n{emoji_money} {discount}% OFF ({savings_str} savings)\n{original_str} ➡️ {current_str}\n\n{affiliate_url}\n\n#Deals #Amazon #Savings",
+            
+            f"{emoji_fire} LIMITED TIME: {discount}% OFF!\n\n{title}\n\nPrice Drop: {original_str} ➡️ {current_str}\nYour Savings: {savings_str}\n\n{affiliate_url}\n\n#DealAlert #AmazonFinds"
+        ]
+        
+        # Select variation based on hour to add variety
+        variation_index = datetime.utcnow().hour % len(variations)
+        tweet = variations[variation_index]
+        
+        # Ensure tweet is under character limit
+        if len(tweet) > 280:
+            # Truncate title if needed
+            max_title_length = len(title) - (len(tweet) - 280) - 3
+            if max_title_length > 20:
+                title = title[:max_title_length] + "..."
+                tweet = variations[variation_index].replace(deal_data['title'], title)
+        
+        return tweet
+    
+    def _clean_title(self, title: str) -> str:
+        """Clean and format product title for Twitter"""
+        # Remove extra whitespace
+        title = re.sub(r'\s+', ' ', title.strip())
+        
+        # Remove common unwanted patterns
+        title = re.sub(r'\([^)]*\)', '', title)  # Remove text in parentheses
+        title = re.sub(r'\[[^\]]*\]', '', title)  # Remove text in brackets
+        title = re.sub(r'Amazon\.com\s*:?\s*', '', title, flags=re.IGNORECASE)
+        
+        # Truncate if too long
+        if len(title) > 100:
+            title = title[:97] + "..."
+        
+        return title.strip()
+    
+    def _create_affiliate_url(self, asin: str) -> str:
+        """Create Amazon affiliate URL"""
+        base_url = f"https://amazon.com/dp/{asin}"
+        if config.AMAZON_AFFILIATE_TAG:
+            return f"{base_url}?tag={config.AMAZON_AFFILIATE_TAG}"
+        return base_url
+    
+    def get_tweet_analytics(self, tweet_id: str) -> Optional[Dict[str, Any]]:
+        """Get analytics for a specific tweet"""
+        try:
+            tweet = self.api.get_status(tweet_id, include_entities=True)
+            
+            return {
+                'tweet_id': tweet_id,
+                'retweets': tweet.retweet_count,
+                'likes': tweet.favorite_count,
+                'replies': tweet.reply_count if hasattr(tweet, 'reply_count') else 0,
+                'created_at': tweet.created_at,
+                'is_retweeted': tweet.retweeted,
+                'is_favorited': tweet.favorited
+            }
+            
+        except tweepy.TweepyException as e:
+            self.logger.error(f"Error getting tweet analytics for {tweet_id}: {str(e)}")
+            return None
+    
+    def get_account_info(self) -> Optional[Dict[str, Any]]:
+        """Get Twitter account information"""
+        try:
+            user = self.api.verify_credentials()
+            
+            return {
+                'username': user.screen_name,
+                'followers_count': user.followers_count,
+                'friends_count': user.friends_count,
+                'tweets_count': user.statuses_count,
+                'account_created': user.created_at,
+                'verified': user.verified
+            }
+            
+        except tweepy.TweepyException as e:
+            self.logger.error(f"Error getting account info: {str(e)}")
+            return None
+    
+    def reset_daily_limits(self):
+        """Reset daily tracking counters"""
+        self.tweets_posted_today = 0
+        self.logger.info("Daily tweet limits reset")
