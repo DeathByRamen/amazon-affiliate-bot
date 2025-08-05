@@ -28,11 +28,21 @@ class Config:
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///deals.db")
     
-    # Bot behavior
-    MAX_TWEETS_PER_HOUR: int = int(os.getenv("MAX_TWEETS_PER_HOUR", "10"))
-    MIN_DISCOUNT_PERCENT: float = float(os.getenv("MIN_DISCOUNT_PERCENT", "30"))
-    MIN_PRICE_DROP: float = float(os.getenv("MIN_PRICE_DROP", "10.00"))
-    MAX_PRODUCT_PRICE: float = float(os.getenv("MAX_PRODUCT_PRICE", "500.00"))
+    # Bot behavior - optimized for high-converting affiliate marketing
+    MAX_TWEETS_PER_HOUR: int = int(os.getenv("MAX_TWEETS_PER_HOUR", "20"))  # Increased for higher throughput
+    MIN_DISCOUNT_PERCENT: float = float(os.getenv("MIN_DISCOUNT_PERCENT", "20"))  # Research-backed 20% threshold
+    MIN_PRICE_DROP: float = float(os.getenv("MIN_PRICE_DROP", "10.00"))  # Meaningful savings amount
+    MIN_PRODUCT_PRICE: float = float(os.getenv("MIN_PRODUCT_PRICE", "20.00"))  # Avoid low-commission items
+    MAX_PRODUCT_PRICE: float = float(os.getenv("MAX_PRODUCT_PRICE", "200.00"))  # Sweet spot for conversions
+    
+    # Quality filters for high conversion
+    MIN_REVIEW_COUNT: int = int(os.getenv("MIN_REVIEW_COUNT", "100"))  # Trust indicator
+    MIN_REVIEW_RATING: float = float(os.getenv("MIN_REVIEW_RATING", "4.0"))  # Quality threshold
+    MAX_SALES_RANK: int = int(os.getenv("MAX_SALES_RANK", "50000"))  # Top 1-5% popularity
+    
+    # High-volume plan settings
+    KEEPA_TOKENS_PER_MINUTE: int = int(os.getenv("KEEPA_TOKENS_PER_MINUTE", "1200"))
+    DEAL_CHECK_BATCH_SIZE: int = int(os.getenv("DEAL_CHECK_BATCH_SIZE", "50"))  # Process more deals per cycle
     
     # Monitoring
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

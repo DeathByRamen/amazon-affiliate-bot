@@ -15,8 +15,8 @@ class TwitterClient:
     def __init__(self):
         """Initialize Twitter client"""
         self._validate_config()
-        self.api = self._setup_api()
         self.logger = logger.bind(component="twitter_client")
+        self.api = self._setup_api()
         
         # Rate limiting tracking
         self.tweets_posted_today = 0

@@ -12,6 +12,7 @@ from loguru import logger
 from config import config
 from models import init_db
 from deal_processor import DealProcessor
+from high_volume_processor import HighVolumeDealProcessor
 from twitter_client import TwitterClient
 from keepa_client import KeepaClient
 
@@ -33,8 +34,12 @@ class AmazonAffiliateBot:
         
         # Initialize components
         self.deal_processor = DealProcessor()
+        self.high_volume_processor = HighVolumeDealProcessor()
         self.twitter_client = TwitterClient()
         self.keepa_client = KeepaClient()
+        
+        # Use high-volume processor if we have premium token plan
+        self.use_high_volume = config.KEEPA_TOKENS_PER_MINUTE >= 1000
         
         # Bot state
         self.is_running = False
@@ -92,8 +97,8 @@ class AmazonAffiliateBot:
     
     def _setup_schedule(self):
         """Setup scheduled jobs"""
-        # Main deal processing - every 30 minutes
-        schedule.every(30).minutes.do(self._run_deal_cycle)
+        # Main deal processing - every 15 minutes (optimized for 1200 tokens/minute)
+        schedule.every(15).minutes.do(self._run_deal_cycle)
         
         # Health check - every 5 minutes
         schedule.every(5).minutes.do(self._health_check)
@@ -128,18 +133,22 @@ class AmazonAffiliateBot:
     def _run_deal_cycle(self):
         """Run a complete deal detection and posting cycle"""
         self.cycle_count += 1
-        self.logger.info(f"Starting deal cycle #{self.cycle_count}")
+        processor_type = "high-volume" if self.use_high_volume else "standard"
+        self.logger.info(f"Starting {processor_type} deal cycle #{self.cycle_count}")
         
         try:
             start_time = time.time()
             
-            # Process deals
-            stats = self.deal_processor.process_deals()
+            # Choose processor based on token plan
+            if self.use_high_volume:
+                stats = self.high_volume_processor.process_high_volume_deals()
+            else:
+                stats = self.deal_processor.process_deals()
             
             # Log results
             elapsed_time = time.time() - start_time
             self.logger.info(
-                f"Deal cycle #{self.cycle_count} completed in {elapsed_time:.2f}s: "
+                f"{processor_type.title()} deal cycle #{self.cycle_count} completed in {elapsed_time:.2f}s: "
                 f"Detected: {stats['deals_detected']}, "
                 f"Posted: {stats['tweets_posted']}, "
                 f"Errors: {stats['errors']}"

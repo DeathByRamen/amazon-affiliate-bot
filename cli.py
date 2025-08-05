@@ -11,6 +11,7 @@ from config import config
 from models import init_db, get_db, Deal, Tweet, BotMetrics
 from bot import AmazonAffiliateBot
 from deal_processor import DealProcessor
+from high_volume_processor import HighVolumeDealProcessor
 from keepa_client import KeepaClient
 from twitter_client import TwitterClient
 
@@ -59,8 +60,9 @@ def status(check_apis):
     # Database status
     click.echo("\n💾 Database:")
     try:
+        from sqlalchemy import text
         db = get_db()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         click.echo("✅ Database connection successful")
     except Exception as e:
@@ -325,11 +327,49 @@ def run():
     
     try:
         bot = AmazonAffiliateBot()
+        if bot.use_high_volume:
+            click.echo("⚡ High-volume mode enabled (1200+ tokens/minute)")
+        else:
+            click.echo("📈 Standard mode (basic token plan)")
         bot.start()
     except KeyboardInterrupt:
         click.echo("\n👋 Bot stopped by user")
     except Exception as e:
         click.echo(f"❌ Bot error: {str(e)}")
+        sys.exit(1)
+
+
+@cli.command("high-volume-test")
+def high_volume_test():
+    """Test high-volume deal processing"""
+    click.echo("⚡ Testing High-Volume Deal Processing...")
+    click.echo("=" * 50)
+    
+    try:
+        # Initialize without Twitter for testing
+        processor = HighVolumeDealProcessor(twitter_enabled=False)
+        
+        click.echo("🔍 Processing multiple categories in parallel...")
+        click.echo("   (Twitter posting disabled for testing)")
+        stats = processor.process_high_volume_deals()
+        
+        click.echo("\n📊 High-Volume Test Results:")
+        click.echo(f"Categories checked: {stats['categories_checked']}")
+        click.echo(f"Products analyzed: {stats['products_analyzed']}")
+        click.echo(f"Deals detected: {stats['deals_detected']}")
+        click.echo(f"Deals filtered: {stats['deals_filtered']}")
+        click.echo(f"Tweets posted: {stats['tweets_posted']}")
+        click.echo(f"Errors: {stats['errors']}")
+        
+        if stats['tweets_posted'] > 0:
+            click.echo("✅ High-volume processing successful!")
+        elif stats['deals_detected'] > 0:
+            click.echo("⚠️  Deals detected but not posted (check filters/Twitter limits)")
+        else:
+            click.echo("ℹ️  No deals detected (may need tokens or different criteria)")
+            
+    except Exception as e:
+        click.echo(f"❌ High-volume test failed: {str(e)}")
         sys.exit(1)
 
 

@@ -20,26 +20,49 @@ class KeepaClient:
         self.api = keepa.Keepa(config.KEEPA_API_KEY)
         self.logger = logger.bind(component="keepa_client")
         
-        # Rate limiting
+        # Rate limiting - optimized for 1200 tokens/minute plan
         self.last_request_time = 0
-        self.min_request_interval = 1.0  # Minimum seconds between requests
+        self.min_request_interval = 0.05  # 0.05 seconds = 1200 requests/minute max
+        self.tokens_per_minute = 1200
+        self.requests_this_minute = 0
+        self.minute_start_time = time.time()
         
     def _rate_limit(self):
-        """Implement rate limiting for API calls"""
+        """Implement advanced rate limiting for 1200 tokens/minute plan"""
         current_time = time.time()
-        time_since_last = current_time - self.last_request_time
         
+        # Reset counter if a new minute has started
+        if current_time - self.minute_start_time >= 60:
+            self.requests_this_minute = 0
+            self.minute_start_time = current_time
+        
+        # Check if we're approaching the per-minute limit
+        if self.requests_this_minute >= self.tokens_per_minute - 10:  # Leave 10 token buffer
+            sleep_until_next_minute = 60 - (current_time - self.minute_start_time)
+            if sleep_until_next_minute > 0:
+                self.logger.info(f"Rate limit reached, sleeping {sleep_until_next_minute:.1f}s until next minute")
+                time.sleep(sleep_until_next_minute)
+                self.requests_this_minute = 0
+                self.minute_start_time = time.time()
+        
+        # Minimum interval between requests (still respect this for API stability)
+        time_since_last = current_time - self.last_request_time
         if time_since_last < self.min_request_interval:
             sleep_time = self.min_request_interval - time_since_last
             time.sleep(sleep_time)
         
         self.last_request_time = time.time()
+        self.requests_this_minute += 1
     
     def get_deals(self, 
                   domain: str = "US", 
-                  deal_threshold: int = 30,
-                  price_range: tuple = (10, 500),
-                  categories: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+                  deal_threshold: int = 20,  # Research-backed 20% threshold
+                  price_range: tuple = (20, 200),  # Optimal commission range
+                  categories: Optional[List[int]] = None,
+                  max_sales_rank: int = 50000,  # Popularity filter
+                  min_review_count: int = 100,  # Trust filter
+                  min_rating: float = 4.0,  # Quality filter
+                  prime_only: bool = True) -> List[Dict[str, Any]]:
         """
         Get current deals from Keepa
         
@@ -57,15 +80,25 @@ class KeepaClient:
         try:
             self.logger.info(f"Fetching deals with {deal_threshold}% discount threshold")
             
-            # Get deals using Keepa's deal finder
-            deals_response = self.api.deals(
-                domain=domain,
-                deal_pct_min=deal_threshold,
-                current_price_min=price_range[0] * 100,  # Keepa uses cents
-                current_price_max=price_range[1] * 100,
-                categories=categories,
-                sort_by="deal_pct"
-            )
+            # Optimized parameters for high-converting affiliate deals
+            deal_parms = {
+                'discountPercentGreater': deal_threshold,  # 20%+ discount for conversion
+                'currentPriceMin': price_range[0] * 100,   # $20+ for meaningful commissions
+                'currentPriceMax': price_range[1] * 100,   # $200 max for conversion sweet spot
+                'salesRankMax': max_sales_rank,            # Top products only
+                'reviewCountMin': min_review_count,        # Trust indicator
+                'reviewRatingMin': int(min_rating * 10),   # Quality threshold (Keepa uses 10-50 scale)
+                'isPrime': 1 if prime_only else 0,        # Prime eligibility for faster conversion
+                'isFBA': 1,                                # Fulfilled by Amazon for trust
+                'sortType': 15,                            # Sort by deal percentage
+                'deltaPercentGreater': deal_threshold,     # Recent price drop
+                'priceDropPercent': deal_threshold         # Ensure meaningful drop
+            }
+            
+            if categories:
+                deal_parms['categoryIds'] = categories
+            
+            deals_response = self.api.deals(deal_parms)
             
             if not deals_response or 'deals' not in deals_response:
                 self.logger.warning("No deals found in response")
