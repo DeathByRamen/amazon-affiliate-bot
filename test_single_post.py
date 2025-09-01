@@ -36,10 +36,29 @@ def test_single_beauty_post():
         client = TwitterClient()
         
         # Get account info to confirm connection
-        info = client.get_account_info()
-        if info:
-            print(f"   ✅ Connected as @{info['username']}")
-            print(f"   📊 Account has {info['followers_count']} followers")
+        try:
+            if hasattr(client, 'client_v2') and client.client_v2:
+                # Use v2 API
+                me = client.client_v2.get_me()
+                if me.data:
+                    print(f"   ✅ Connected as @{me.data.username}")
+                    print(f"   📊 Account ID: {me.data.id}")
+                    info = {'username': me.data.username}
+                else:
+                    print("   ❌ Failed to get account info")
+                    return False
+            else:
+                # Use v1.1 API
+                info = client.get_account_info()
+                if info:
+                    print(f"   ✅ Connected as @{info['username']}")
+                    print(f"   📊 Account has {info['followers_count']} followers")
+                else:
+                    print("   ❌ Failed to get account info")
+                    return False
+        except Exception as e:
+            print(f"   ❌ Failed to get account info: {str(e)}")
+            return False
         
         print("\n2️⃣ Generating beauty tweet content...")
         tweet_content = client._create_beauty_tweet_content(sample_beauty_deal)

@@ -35,10 +35,30 @@ class TwitterClient:
         if not all(required_vars):
             raise ValueError("Missing required Twitter API credentials")
     
-    def _setup_api(self) -> tweepy.API:
-        """Setup Twitter API client"""
+    def _setup_api(self):
+        """Setup Twitter API client using v2 API"""
         try:
-            # OAuth 1.0a User Context
+            # Try v2 API first (works with Free tier)
+            try:
+                self.client_v2 = tweepy.Client(
+                    consumer_key=config.TWITTER_API_KEY,
+                    consumer_secret=config.TWITTER_API_SECRET,
+                    access_token=config.TWITTER_ACCESS_TOKEN,
+                    access_token_secret=config.TWITTER_ACCESS_TOKEN_SECRET,
+                    wait_on_rate_limit=True
+                )
+                
+                # Test v2 API
+                me = self.client_v2.get_me()
+                if me.data:
+                    self.logger.info(f"Twitter API v2 authentication successful")
+                    self.api_version = "v2"
+                    return self.client_v2
+                    
+            except Exception as e:
+                self.logger.warning(f"v2 API failed: {str(e)}, trying v1.1...")
+            
+            # Fallback to v1.1 API (requires Basic tier)
             auth = tweepy.OAuth1UserHandler(
                 config.TWITTER_API_KEY,
                 config.TWITTER_API_SECRET,
@@ -47,11 +67,9 @@ class TwitterClient:
             )
             
             api = tweepy.API(auth, wait_on_rate_limit=True)
-            
-            # Test authentication
             api.verify_credentials()
-            self.logger.info("Twitter API authentication successful")
-            
+            self.logger.info("Twitter API v1.1 authentication successful")
+            self.api_version = "v1.1"
             return api
             
         except Exception as e:
@@ -89,15 +107,21 @@ class TwitterClient:
         try:
             tweet_content = self._create_tweet_content(deal_data)
             
-            # Post tweet
-            tweet = self.api.update_status(tweet_content)
+            # Post tweet using v2 API if available, fallback to v1.1
+            if hasattr(self, 'client_v2') and self.client_v2:
+                response = self.client_v2.create_tweet(text=tweet_content)
+                tweet_id = response.data['id']
+            else:
+                # Fallback to v1.1 API
+                tweet = self.api.update_status(tweet_content)
+                tweet_id = tweet.id
             
             # Update tracking
             self.tweets_posted_today += 1
             self.last_tweet_time = datetime.utcnow()
             
-            self.logger.info(f"Tweet posted successfully: {tweet.id}")
-            return str(tweet.id)
+            self.logger.info(f"Tweet posted successfully: {tweet_id}")
+            return str(tweet_id)
             
         except tweepy.TweepyException as e:
             self.logger.error(f"Failed to post tweet: {str(e)}")
@@ -120,15 +144,21 @@ class TwitterClient:
         try:
             tweet_content = self._create_beauty_tweet_content(deal_data)
             
-            # Post tweet
-            tweet = self.api.update_status(tweet_content)
+            # Post tweet using v2 API if available, fallback to v1.1
+            if hasattr(self, 'client_v2') and self.client_v2:
+                response = self.client_v2.create_tweet(text=tweet_content)
+                tweet_id = response.data['id']
+            else:
+                # Fallback to v1.1 API
+                tweet = self.api.update_status(tweet_content)
+                tweet_id = tweet.id
             
             # Update tracking
             self.tweets_posted_today += 1
             self.last_tweet_time = datetime.utcnow()
             
-            self.logger.info(f"Beauty tweet posted successfully: {tweet.id}")
-            return str(tweet.id)
+            self.logger.info(f"Beauty tweet posted successfully: {tweet_id}")
+            return str(tweet_id)
             
         except tweepy.TweepyException as e:
             self.logger.error(f"Failed to post beauty tweet: {str(e)}")
