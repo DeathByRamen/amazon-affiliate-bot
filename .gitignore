@@ -1,15 +1,18 @@
-# Environment variables
+# Environment variables (NEVER commit these!)
 .env
 .env.local
 .env.production
+.env.development
 
-# Database
+# API Keys and Secrets
+*.key
+*.secret
+config/secrets.py
+
+# Database files
 *.db
 *.sqlite
-
-# Logs
-logs/
-*.log
+*.sqlite3
 
 # Python
 __pycache__/
@@ -29,44 +32,40 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
 # Virtual environments
-.env
-.venv
-env/
 venv/
+env/
 ENV/
-env.bak/
-venv.bak/
+.venv/
 
-# IDE
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS
+# OS files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
+*.tmp
 
-# Docker
-.dockerignore
+# Logs
+*.log
+logs/
 
-# Data
-data/
-*.csv
-*.json
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
 
-# Monitoring
-monitoring/grafana/dashboards/generated/
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Documentation
+docs/_build/
+site/
