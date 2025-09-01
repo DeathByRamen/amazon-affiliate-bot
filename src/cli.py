@@ -259,6 +259,79 @@ def test(skip_twitter):
         click.echo(f"❌ Test failed: {str(e)}")
 
 
+@cli.command("setup-twitter")
+def setup_twitter():
+    """Interactive Twitter API setup and testing"""
+    click.echo("🐦 Twitter Setup for Amazon Affiliate Bot")
+    click.echo("=" * 50)
+    
+    try:
+        # Import here to avoid circular imports
+        import subprocess
+        import sys
+        
+        # Run the setup script
+        script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'setup_twitter.py')
+        subprocess.run([sys.executable, script_path])
+        
+    except Exception as e:
+        click.echo(f"❌ Setup failed: {str(e)}")
+
+
+@cli.command("test-twitter")
+def test_twitter():
+    """Test Twitter API connection and posting"""
+    click.echo("🐦 Testing Twitter Integration")
+    click.echo("=" * 40)
+    
+    try:
+        from twitter_client import TwitterClient
+        
+        # Test connection
+        click.echo("1️⃣ Testing Twitter API connection...")
+        client = TwitterClient()
+        info = client.get_account_info()
+        
+        if info:
+            click.echo(f"   ✅ Connected as @{info['username']}")
+            click.echo(f"   📊 Followers: {info['followers_count']:,}")
+            click.echo(f"   🐦 Total Tweets: {info['tweets_count']:,}")
+        else:
+            click.echo("   ❌ Failed to get account info")
+            return
+        
+        # Test tweet content generation
+        click.echo("\n2️⃣ Testing tweet content generation...")
+        sample_deal = {
+            'title': 'Sample Beauty Product - Premium Skincare Serum',
+            'asin': 'B07SAMPLE123',
+            'discount_percent': 25,
+            'original_price': 49.99,
+            'current_price': 37.49
+        }
+        
+        beauty_content = client._create_beauty_tweet_content(sample_deal)
+        click.echo(f"   ✅ Beauty tweet content generated ({len(beauty_content)}/280 chars)")
+        
+        # Ask if user wants to post test tweet
+        click.echo("\n3️⃣ Test posting options:")
+        if click.confirm("   Post a test tweet? (You can delete it afterwards)"):
+            test_content = f"🤖 Bot test at {datetime.utcnow().strftime('%I:%M %p')} - Please ignore/delete #BotTest"
+            tweet = client.api.update_status(test_content)
+            click.echo(f"   ✅ Test tweet posted: https://twitter.com/{info['username']}/status/{tweet.id}")
+        else:
+            click.echo("   ⏭️ Skipped test tweet")
+        
+        click.echo("\n✅ Twitter integration test completed!")
+        
+    except Exception as e:
+        click.echo(f"❌ Twitter test failed: {str(e)}")
+        if "401" in str(e):
+            click.echo("💡 Check your Twitter API credentials in .env file")
+        elif "403" in str(e):
+            click.echo("💡 Make sure your app has 'Read and Write' permissions")
+
+
 @cli.command("test-keepa")
 def test_keepa():
     """Test Keepa API integration only"""

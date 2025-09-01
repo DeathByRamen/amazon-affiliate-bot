@@ -54,12 +54,18 @@ class DealProcessor:
             db = get_db()
             try:
                 for deal_data in deals:
+                    # Always save qualifying deals to database
                     if self._should_process_deal(deal_data, db):
-                        success = self._process_single_deal(deal_data, db)
-                        if success:
-                            stats['tweets_posted'] += 1
-                        else:
-                            stats['errors'] += 1
+                        # Save deal to database
+                        deal = self._save_deal_to_db(deal_data, db)
+                        
+                        # Check if this deal should be tweeted (beauty filter)
+                        if deal and self._should_tweet_deal(deal_data, db):
+                            tweet_success = self._post_deal_to_twitter(deal_data, deal, db)
+                            if tweet_success:
+                                stats['tweets_posted'] += 1
+                            else:
+                                stats['errors'] += 1
                     else:
                         stats['deals_filtered'] += 1
                 
@@ -82,33 +88,72 @@ class DealProcessor:
     
     def _should_process_deal(self, deal_data: Dict[str, Any], db: Session) -> bool:
         """
-        Check if a deal should be processed
+        Check if a deal should be processed (saved to DB)
         
         Args:
             deal_data: Deal information from Keepa
             db: Database session
             
         Returns:
-            True if deal should be processed
+            True if deal should be processed and saved
         """
         asin = deal_data.get('asin')
         if not asin:
             return False
         
-        # Check if deal was already posted recently (within 24 hours)
+        # Check if deal was already saved recently (within 24 hours)
         recent_cutoff = datetime.utcnow() - timedelta(hours=24)
         existing_deal = db.query(Deal).filter(
+            Deal.asin == asin,
+            Deal.detected_at > recent_cutoff
+        ).first()
+        
+        if existing_deal:
+            self.logger.debug(f"Deal for {asin} already saved recently")
+            return False
+        
+        # Check minimum quality criteria for saving to database
+        if not self._meets_quality_criteria(deal_data):
+            return False
+        
+        return True
+    
+    def _should_tweet_deal(self, deal_data: Dict[str, Any], db: Session) -> bool:
+        """
+        Check if a deal should be posted to Twitter (beauty-only filter)
+        
+        Args:
+            deal_data: Deal information from Keepa
+            db: Database session
+            
+        Returns:
+            True if deal should be tweeted
+        """
+        asin = deal_data.get('asin')
+        if not asin:
+            return False
+        
+        # Check if we're only tweeting beauty deals
+        if config.BEAUTY_ONLY_TWEETS:
+            if not self._is_beauty_product(deal_data):
+                self.logger.debug(f"Skipping non-beauty product for Twitter: {asin}")
+                return False
+            
+            # Apply beauty-specific criteria
+            if not self._meets_beauty_criteria(deal_data):
+                self.logger.debug(f"Beauty product doesn't meet beauty criteria: {asin}")
+                return False
+        
+        # Check if deal was already posted to Twitter recently (within 24 hours)
+        recent_cutoff = datetime.utcnow() - timedelta(hours=24)
+        existing_tweet = db.query(Deal).filter(
             Deal.asin == asin,
             Deal.is_posted == True,
             Deal.posted_at > recent_cutoff
         ).first()
         
-        if existing_deal:
-            self.logger.debug(f"Deal for {asin} already posted recently")
-            return False
-        
-        # Check minimum quality criteria
-        if not self._meets_quality_criteria(deal_data):
+        if existing_tweet:
+            self.logger.debug(f"Deal for {asin} already tweeted recently")
             return False
         
         # Check Twitter rate limits
@@ -167,16 +212,16 @@ class DealProcessor:
             self.logger.error(f"Error checking quality criteria: {str(e)}")
             return False
     
-    def _process_single_deal(self, deal_data: Dict[str, Any], db: Session) -> bool:
+    def _save_deal_to_db(self, deal_data: Dict[str, Any], db: Session) -> Optional[Deal]:
         """
-        Process a single deal
+        Save deal to database
         
         Args:
             deal_data: Deal information
             db: Database session
             
         Returns:
-            True if successfully processed
+            Deal object if successfully saved, None otherwise
         """
         try:
             asin = deal_data['asin']
@@ -194,14 +239,40 @@ class DealProcessor:
                 image_url=deal_data.get('image_url', ''),
                 product_url=f"https://amazon.com/dp/{asin}",
                 affiliate_url=self._create_affiliate_url(asin),
-                detected_at=datetime.utcnow()
+                detected_at=datetime.utcnow(),
+                is_posted=False  # Will be updated if tweeted
             )
             
             db.add(deal)
             db.flush()  # Get the deal ID
             
-            # Post to Twitter
-            tweet_id = self.twitter_client.post_deal(deal_data)
+            self.logger.info(f"Successfully saved deal to DB for {asin}")
+            return deal
+                
+        except Exception as e:
+            self.logger.error(f"Error saving deal to DB: {str(e)}")
+            return None
+    
+    def _post_deal_to_twitter(self, deal_data: Dict[str, Any], deal: Deal, db: Session) -> bool:
+        """
+        Post deal to Twitter
+        
+        Args:
+            deal_data: Deal information
+            deal: Deal database object
+            db: Database session
+            
+        Returns:
+            True if successfully posted
+        """
+        try:
+            asin = deal_data['asin']
+            
+            # Post to Twitter with beauty-specific formatting if it's a beauty product
+            if self._is_beauty_product(deal_data):
+                tweet_id = self.twitter_client.post_beauty_deal(deal_data)
+            else:
+                tweet_id = self.twitter_client.post_deal(deal_data)
             
             if tweet_id:
                 # Update deal as posted
@@ -219,14 +290,116 @@ class DealProcessor:
                 
                 db.add(tweet)
                 
-                self.logger.info(f"Successfully processed deal for {asin}")
+                self.logger.info(f"Successfully posted deal to Twitter for {asin}")
                 return True
             else:
                 self.logger.error(f"Failed to post tweet for deal {asin}")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Error processing deal: {str(e)}")
+            self.logger.error(f"Error posting deal to Twitter: {str(e)}")
+            return False
+    
+    def _is_beauty_product(self, deal_data: Dict[str, Any]) -> bool:
+        """
+        Check if a product is a beauty/cosmetics product
+        
+        Args:
+            deal_data: Deal information
+            
+        Returns:
+            True if it's a beauty product
+        """
+        try:
+            title = deal_data.get('title', '').lower()
+            category = deal_data.get('category', '').lower()
+            brand = deal_data.get('brand', '').lower()
+            
+            # Beauty category keywords
+            beauty_categories = [
+                'beauty', 'cosmetics', 'makeup', 'skincare', 'skin care',
+                'hair care', 'haircare', 'nail', 'fragrance', 'perfume',
+                'personal care', 'luxury beauty', 'premium beauty'
+            ]
+            
+            # Beauty product keywords
+            beauty_keywords = [
+                'lipstick', 'foundation', 'concealer', 'mascara', 'eyeshadow',
+                'blush', 'bronzer', 'primer', 'setting spray', 'powder',
+                'eyeliner', 'brow', 'eyebrow', 'highlighter', 'contour',
+                'serum', 'moisturizer', 'cleanser', 'toner', 'cream',
+                'lotion', 'oil', 'mask', 'exfoliant', 'sunscreen',
+                'shampoo', 'conditioner', 'hair mask', 'styling',
+                'nail polish', 'nail care', 'cuticle', 'manicure',
+                'perfume', 'cologne', 'body spray', 'body mist',
+                'makeup brush', 'beauty sponge', 'applicator'
+            ]
+            
+            # Beauty brands (common ones)
+            beauty_brands = [
+                'maybelline', 'loreal', 'revlon', 'covergirl', 'neutrogena',
+                'olay', 'clinique', 'estee lauder', 'mac', 'sephora',
+                'ulta', 'nyx', 'urban decay', 'too faced', 'benefit',
+                'fenty beauty', 'rare beauty', 'glossier', 'drunk elephant',
+                'the ordinary', 'cerave', 'la roche posay', 'vichy'
+            ]
+            
+            # Check category
+            if any(cat in category for cat in beauty_categories):
+                return True
+            
+            # Check title for beauty keywords
+            if any(keyword in title for keyword in beauty_keywords):
+                return True
+            
+            # Check brand
+            if any(brand_name in brand for brand_name in beauty_brands):
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error checking if beauty product: {str(e)}")
+            return False
+    
+    def _meets_beauty_criteria(self, deal_data: Dict[str, Any]) -> bool:
+        """
+        Check if beauty product meets beauty-specific criteria
+        
+        Args:
+            deal_data: Deal information
+            
+        Returns:
+            True if meets beauty criteria
+        """
+        try:
+            # Beauty-specific discount threshold
+            if deal_data.get('discount_percent', 0) < config.BEAUTY_MIN_DISCOUNT:
+                return False
+            
+            # Beauty-specific price range
+            current_price = deal_data.get('current_price', 0)
+            if current_price < config.BEAUTY_MIN_PRICE or current_price > config.BEAUTY_MAX_PRICE:
+                return False
+            
+            # Higher quality standards for beauty products
+            rating = deal_data.get('rating')
+            review_count = deal_data.get('review_count')
+            
+            if rating is not None and rating < 4.0:  # Higher rating requirement for beauty
+                return False
+            
+            if review_count is not None and review_count < 50:  # More reviews needed for beauty
+                return False
+            
+            # Ensure it's not a sample/travel size (too cheap usually indicates this)
+            if current_price < 15.0:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error checking beauty criteria: {str(e)}")
             return False
     
     def _create_affiliate_url(self, asin: str) -> str:

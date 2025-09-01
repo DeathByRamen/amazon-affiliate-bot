@@ -103,6 +103,37 @@ class TwitterClient:
             self.logger.error(f"Failed to post tweet: {str(e)}")
             return None
     
+    def post_beauty_deal(self, deal_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Post a beauty deal to Twitter with beauty-specific formatting
+        
+        Args:
+            deal_data: Dictionary containing deal information
+            
+        Returns:
+            Tweet ID if successful, None otherwise
+        """
+        if not self.can_post_tweet():
+            self.logger.warning("Rate limit reached, cannot post beauty tweet")
+            return None
+        
+        try:
+            tweet_content = self._create_beauty_tweet_content(deal_data)
+            
+            # Post tweet
+            tweet = self.api.update_status(tweet_content)
+            
+            # Update tracking
+            self.tweets_posted_today += 1
+            self.last_tweet_time = datetime.utcnow()
+            
+            self.logger.info(f"Beauty tweet posted successfully: {tweet.id}")
+            return str(tweet.id)
+            
+        except tweepy.TweepyException as e:
+            self.logger.error(f"Failed to post beauty tweet: {str(e)}")
+            return None
+    
     def _create_tweet_content(self, deal_data: Dict[str, Any]) -> str:
         """Create tweet content from deal data"""
         # Extract deal information
@@ -130,6 +161,51 @@ class TwitterClient:
             f"{emoji_lightning} FLASH DEAL {emoji_lightning}\n\n{title}\n\n{emoji_money} {discount}% OFF ({savings_str} savings)\n{original_str} ➡️ {current_str}\n\n{affiliate_url}\n\n#Deals #Amazon #Savings",
             
             f"{emoji_fire} LIMITED TIME: {discount}% OFF!\n\n{title}\n\nPrice Drop: {original_str} ➡️ {current_str}\nYour Savings: {savings_str}\n\n{affiliate_url}\n\n#DealAlert #AmazonFinds"
+        ]
+        
+        # Select variation based on hour to add variety
+        variation_index = datetime.utcnow().hour % len(variations)
+        tweet = variations[variation_index]
+        
+        # Ensure tweet is under character limit
+        if len(tweet) > 280:
+            # Truncate title if needed
+            max_title_length = len(title) - (len(tweet) - 280) - 3
+            if max_title_length > 20:
+                title = title[:max_title_length] + "..."
+                tweet = variations[variation_index].replace(deal_data['title'], title)
+        
+        return tweet
+    
+    def _create_beauty_tweet_content(self, deal_data: Dict[str, Any]) -> str:
+        """Create beauty-specific tweet content from deal data"""
+        # Extract deal information
+        title = self._clean_title(deal_data['title'])
+        discount = int(deal_data['discount_percent'])
+        original_price = deal_data['original_price']
+        current_price = deal_data['current_price']
+        savings = original_price - current_price
+        affiliate_url = self._create_affiliate_url(deal_data['asin'])
+        
+        # Beauty-specific emojis
+        beauty_emojis = ["✨", "💄", "🌟", "💅", "🌸", "💎", "🎀", "🦋"]
+        fire_emoji = "🔥"
+        money_emoji = "💰"
+        
+        # Format prices
+        original_str = f"${original_price:.2f}"
+        current_str = f"${current_price:.2f}"
+        savings_str = f"${savings:.2f}"
+        
+        # Beauty-specific tweet variations
+        variations = [
+            f"{beauty_emojis[0]} BEAUTY STEAL ALERT {beauty_emojis[0]}\n\n{title}\n\n{fire_emoji} {discount}% OFF\nWas: {original_str} ➡️ Now: {current_str}\nSave: {savings_str}\n\n{affiliate_url}\n\n#BeautyDeals #MakeupSale #BeautyFinds",
+            
+            f"{beauty_emojis[1]} GLOW UP FOR LESS {beauty_emojis[1]}\n\n{title}\n\n{money_emoji} {discount}% OFF ({savings_str} savings!)\n{original_str} ➡️ {current_str}\n\n{affiliate_url}\n\n#BeautyOnABudget #SkincareDeals #AffordableBeauty",
+            
+            f"{beauty_emojis[2]} BEAUTY BARGAIN {beauty_emojis[2]}\n\n{title}\n\n{fire_emoji} Limited Time: {discount}% OFF\nPrice Drop: {original_str} ➡️ {current_str}\nYour Savings: {savings_str}\n\n{affiliate_url}\n\n#BeautyBargain #MakeupFinds #TheFrugalBeauty",
+            
+            f"{beauty_emojis[3]} STUNNING DEAL {beauty_emojis[3]}\n\n{title}\n\n{fire_emoji} {discount}% OFF FLASH SALE\nNormal: {original_str}\nSale: {current_str}\nSave: {savings_str}\n\n{affiliate_url}\n\n#BeautyDeals #GlowForLess #BeautyFinds"
         ]
         
         # Select variation based on hour to add variety

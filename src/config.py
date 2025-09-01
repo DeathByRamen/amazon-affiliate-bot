@@ -35,6 +35,12 @@ class Config:
     MIN_PRODUCT_PRICE: float = float(os.getenv("MIN_PRODUCT_PRICE", "15.00"))  # Relaxed from $20 to $15
     MAX_PRODUCT_PRICE: float = float(os.getenv("MAX_PRODUCT_PRICE", "300.00"))  # Expanded from $200 to $300
     
+    # Beauty-specific Twitter posting settings
+    BEAUTY_ONLY_TWEETS: bool = os.getenv("BEAUTY_ONLY_TWEETS", "true").lower() == "true"
+    BEAUTY_MIN_DISCOUNT: float = float(os.getenv("BEAUTY_MIN_DISCOUNT", "20"))  # Higher threshold for beauty
+    BEAUTY_MIN_PRICE: float = float(os.getenv("BEAUTY_MIN_PRICE", "20.00"))  # Beauty products typically higher priced
+    BEAUTY_MAX_PRICE: float = float(os.getenv("BEAUTY_MAX_PRICE", "200.00"))  # Premium but accessible beauty range
+    
     # Quality filters - RELAXED for more deals
     MIN_REVIEW_COUNT: int = int(os.getenv("MIN_REVIEW_COUNT", "25"))  # Relaxed from 100 to 25
     MIN_REVIEW_RATING: float = float(os.getenv("MIN_REVIEW_RATING", "3.5"))  # Relaxed from 4.0 to 3.5
