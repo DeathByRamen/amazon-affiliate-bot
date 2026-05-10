@@ -228,3 +228,4 @@ The bot includes built-in protection:
 ---
 
 🎉 **You're all set!** Your bot will now automatically find beauty deals and post them to Twitter with your affiliate links.
+
